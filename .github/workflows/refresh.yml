@@ -1,0 +1,59 @@
+name: Refresh dashboard
+
+on:
+  schedule:
+    - cron: "0 12 * * 1"   # every Monday 12:00 UTC (8am ET)
+  workflow_dispatch:         # manual "Run workflow" button
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Fetch City data
+        run: python scripts/01_fetch_data.py
+
+      - name: Process
+        run: python scripts/02_process.py
+
+      - name: Build dashboard
+        run: |
+          python scripts/03_build_dashboard.py
+          mkdir -p site
+          cp outputs/bike_plan_dashboard.html site/index.html
+          cp data/processed/unbuilt_plan_projects_by_hin.csv site/
+          cp data/processed/summary.json site/
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

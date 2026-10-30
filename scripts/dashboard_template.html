@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bike(+) Plan Midpoint</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+:root {
+  color-scheme: light;
+  --page: #f9f9f7; --surface-1: #fcfcfb; --text-primary: #0b0b0b; --text-secondary: #52514e;
+  --muted: #898781; --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11,11,11,0.10);
+  --since: #2a78d6; --remaining: #eb6834; --before: #a9a8a0; --hin: rgba(11,11,11,0.13);
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface-1: #1a1a19; --text-primary: #f0efec; --text-secondary: #c3c2b7;
+    --muted: #898781; --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10);
+    --since: #3987e5; --remaining: #d95926; --before: #6b6a65; --hin: rgba(255,255,255,0.16);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0d0d0d; --surface-1: #1a1a19; --text-primary: #f0efec; --text-secondary: #c3c2b7;
+  --muted: #898781; --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10);
+  --since: #3987e5; --remaining: #d95926; --before: #6b6a65; --hin: rgba(255,255,255,0.16);
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page); color: var(--text-primary);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width: 1080px; margin: 0 auto; padding: 24px 16px 48px; }
+h1 { font-size: 26px; margin: 0 0 4px; }
+h2 { font-size: 17px; margin: 0 0 4px; }
+.sub { color: var(--text-secondary); margin: 0 0 20px; }
+.draft { display: inline-block; font-size: 12px; padding: 2px 8px; border-radius: 999px;
+  border: 1px solid var(--border); color: var(--text-secondary); margin-left: 8px; vertical-align: middle; }
+.card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+.cap { color: var(--text-secondary); font-size: 13px; margin: 0 0 12px; }
+.updated { color: var(--muted); font-size: 13px; margin: 0 0 6px; }
+.hero { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin: 6px 0 4px; }
+#hero-pct { font-size: 48px; font-weight: 650; line-height: 1; }
+.hero-of { color: var(--text-secondary); font-size: 15px; }
+.tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
+.tile { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+.tile .k { font-size: 13px; color: var(--text-secondary); }
+.tile .v { font-size: 30px; font-weight: 600; line-height: 1.2; }
+.tile .v small { font-size: 15px; font-weight: 500; color: var(--text-secondary); }
+.tile .n { font-size: 12px; color: var(--muted); }
+.swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: baseline; }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 13px; color: var(--text-secondary); margin: 0 0 8px; }
+.grid2 { display: grid; grid-template-columns: 1.25fr 1fr; gap: 16px; }
+svg text { fill: var(--text-secondary); font-size: 12px; }
+svg .val { fill: var(--text-primary); }
+#map { height: 520px; border-radius: 8px; }
+.leaflet-container { background: var(--surface-1); font: inherit; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--grid); vertical-align: top; }
+th { color: var(--text-secondary); font-weight: 600; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+details summary { cursor: pointer; color: var(--text-secondary); font-size: 13px; margin-top: 8px; }
+.tip { position: fixed; pointer-events: none; background: var(--surface-1); color: var(--text-primary);
+  border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; font-size: 13px;
+  box-shadow: 0 4px 16px rgba(0,0,0,.12); opacity: 0; transition: opacity .1s; z-index: 1000; }
+.notes li { margin-bottom: 6px; color: var(--text-secondary); font-size: 14px; }
+.mapctl { display: flex; flex-wrap: wrap; gap: 14px; font-size: 13px; color: var(--text-secondary); margin-bottom: 8px; }
+.mapctl label { cursor: pointer; }
+@media (max-width: 760px) {
+  .tiles { grid-template-columns: repeat(2, 1fr); }
+  .grid2 { grid-template-columns: 1fr; }
+  #map { height: 400px; }
+  .hide-sm { display: none; }
+}
+</style>
+</head>
+<body>
+<main>
+  <h1>Bike(+) Plan at the midpoint <span class="draft">Draft for discussion</span></h1>
+  <p class="updated" id="updated"></p>
+  <p class="sub">Progress on the 2020 Bike(+) Plan's goal of 123 new miles of on-street bike facilities: what was built before and since 2020, what is still proposed, and where the remaining projects meet the High Injury Network. All figures are centerline miles.</p>
+
+  <section class="tiles" id="tiles"></section>
+
+  <section class="card">
+    <h2>Progress toward the planned network</h2>
+    <div class="hero"><span id="hero-pct"></span><span class="hero-of">of the 123-mile on-street goal built since 2020</span></div>
+    <p class="cap" id="progress-cap"></p>
+    <div id="progress"></div>
+  </section>
+
+  <div class="grid2">
+    <section class="card">
+      <h2>Existing network by facility type</h2>
+      <p class="cap">Miles built before 2020 vs. since the plan was adopted. Shared use paths are shown for context; the plan's progress goal counts on-street facilities only.</p>
+      <div class="legend"><span><span class="swatch" style="background:var(--before)"></span>Before 2020</span><span><span class="swatch" style="background:var(--since)"></span>Since 2020</span></div>
+      <div id="bytype"></div>
+      <details><summary>Show as table</summary><div id="bytype-table"></div></details>
+    </section>
+    <section class="card">
+      <h2>On-street miles built per year since 2020</h2>
+      <p class="cap" id="byyear-cap"></p>
+      <div id="byyear"></div>
+      <details><summary>Show as table</summary><div id="byyear-table"></div></details>
+    </section>
+  </div>
+
+  <section class="card">
+    <h2>Map: built, planned, and the High Injury Network</h2>
+    <p class="cap">Click a line for details. The wide gray band is the City's High Injury Network.</p>
+    <div class="mapctl">
+      <label><input type="checkbox" data-layer="hin" checked> <span class="swatch" style="background:var(--hin)"></span>High Injury Network</label>
+      <label><input type="checkbox" data-layer="before" checked> <span class="swatch" style="background:var(--before)"></span>Built before 2020</label>
+      <label><input type="checkbox" data-layer="since" checked> <span class="swatch" style="background:var(--since)"></span>Built since 2020</label>
+      <label><input type="checkbox" data-layer="proposed" checked> <span class="swatch" style="background:var(--remaining)"></span>Still proposed (dashed)</label>
+      <label><input type="checkbox" data-layer="tbd" checked> <span class="swatch" style="background:var(--remaining);opacity:.45"></span>Future corridor, route TBD (dotted)</label>
+    </div>
+    <div id="map"></div>
+  </section>
+
+  <section class="card">
+    <h2>Unbuilt Bike(+) Plan projects on the High Injury Network</h2>
+    <p class="cap" id="proj-cap"></p>
+    <div id="proj-table"></div>
+    <details><summary>Show all unbuilt projects</summary><div id="proj-all"></div></details>
+  </section>
+
+  <section class="card">
+    <h2>How these numbers were made</h2>
+    <ul class="notes" id="notes"></ul>
+  </section>
+</main>
+<div class="tip" id="tip"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const S = __SUMMARY__;
+const PROJECTS = __PROJECTS__;
+const GEO = { existing: __EXISTING__, proposed: __PROPOSED__, hin: __HIN__ };
+
+const fmt = (v, d = 1) => Number(v).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const tip = document.getElementById('tip');
+function showTip(e, html) { tip.innerHTML = html; tip.style.opacity = 1; moveTip(e); }
+function moveTip(e) {
+  const x = Math.min(e.clientX + 14, innerWidth - tip.offsetWidth - 8);
+  tip.style.left = x + 'px'; tip.style.top = (e.clientY + 14) + 'px';
+}
+function hideTip() { tip.style.opacity = 0; }
+function bindTip(el, html) {
+  el.addEventListener('mouseenter', e => showTip(e, html));
+  el.addEventListener('mousemove', moveTip);
+  el.addEventListener('mouseleave', hideTip);
+}
+const NS = 'http://www.w3.org/2000/svg';
+function svgEl(tag, attrs, parent) {
+  const el = document.createElementNS(NS, tag);
+  for (const k in attrs) el.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(el);
+  return el;
+}
+function table(rows, cols) {
+  return '<table><thead><tr>' + cols.map(c => `<th class="${c.num ? 'num' : ''} ${c.cls || ''}">${c.label}</th>`).join('') +
+    '</tr></thead><tbody>' + rows.map(r => '<tr>' + cols.map(c =>
+      `<td class="${c.num ? 'num' : ''} ${c.cls || ''}">${c.f ? c.f(r) : r[c.key]}</td>`).join('') + '</tr>').join('') + '</tbody></table>';
+}
+
+// ---- Last updated
+{
+  const L0 = S.data_dates.layers;
+  const cityDate = [L0.bike_existing.data_last_edit, L0.bike_proposed.data_last_edit].filter(Boolean).sort().pop();
+  document.getElementById('updated').textContent =
+    `Refreshed ${S.data_dates.fetched_at.slice(0, 10)} · City bike facility data last edited ${cityDate}`;
+}
+
+// ---- Tiles
+const T = S.target_on_street_mi, built = S.on_street_since_2020_mi, toGo = Math.max(T - built, 0);
+const pct = built / T * 100;
+document.getElementById('tiles').innerHTML = [
+  ['On-street network today', S.on_street_existing_mi, `Plus ${fmt(S.existing_total_mi - S.on_street_existing_mi)} mi of trails and paths`],
+  ['Built since 2020 (on-street)', built, `${fmt(pct, 0)}% of the ${T}-mile goal`],
+  ['Still proposed (on-street)', S.on_street_proposed_mi, `Plus ${fmt(S.tbd_corridor_mi)} mi of corridors with route TBD`],
+  ['Proposed on-street on HIN', S.on_street_proposed_on_hin_mi, `${fmt(S.on_street_proposed_on_hin_mi / S.on_street_proposed_mi * 100, 0)}% of proposed on-street miles`],
+].map(([k, v, n]) => `<div class="tile"><div class="k">${k}</div><div class="v">${fmt(v)} <small>mi</small></div><div class="n">${n}</div></div>`).join('');
+
+// ---- Progress bar (on-street built since 2020 vs the 123-mile goal)
+function drawProgress() {
+  const box = document.getElementById('progress'); box.innerHTML = '';
+  const W = box.clientWidth, H = 64, barY = 8, barH = 26, gap = 2;
+  const svg = svgEl('svg', { width: W, height: H, role: 'img',
+    'aria-label': `Built since 2020 ${fmt(built)} of ${T} on-street miles; ${fmt(toGo)} miles to go` }, box);
+  const w1 = W * Math.min(built / T, 1);
+  const r1 = svgEl('rect', { x: 0, y: barY, width: Math.max(w1 - gap / 2, 0), height: barH, rx: 4, fill: css('--since') }, svg);
+  const r2 = svgEl('rect', { x: w1 + gap / 2, y: barY, width: Math.max(W - w1 - gap / 2, 0), height: barH, rx: 4, fill: css('--remaining') }, svg);
+  bindTip(r1, `<b>Built since 2020</b><br>${fmt(built)} on-street mi`);
+  bindTip(r2, `<b>To go</b><br>${fmt(toGo)} mi to reach ${T}`);
+  svgEl('text', { x: 0, y: barY + barH + 18, class: 'val' }, svg).textContent = `Built since 2020: ${fmt(built)} mi`;
+  svgEl('text', { x: W, y: barY + barH + 18, 'text-anchor': 'end' }, svg).textContent = `To go: ${fmt(toGo)} mi`;
+}
+document.getElementById('hero-pct').textContent = `${fmt(pct, 0)}%`;
+document.getElementById('progress-cap').textContent =
+  `The plan calls for ${T} new miles of on-street facilities (Bike(+) Plan, p. 5). ${fmt(built)} on-street miles have been built since 2020, leaving ${fmt(toGo)} mi. ` +
+  `New trails are tracked separately: ${fmt(S.trail_since_2020_mi)} of ${S.target_trail_mi} mi so far.`;
+
+// ---- By facility type (stacked horizontal bars)
+function drawByType() {
+  const box = document.getElementById('bytype'); box.innerHTML = '';
+  const rows = S.by_type, W = box.clientWidth, labelW = Math.min(150, W * 0.38), rowH = 30, barH = 16, padR = 44;
+  const H = rows.length * rowH + 4;
+  const max = Math.max(...rows.map(r => r.before + r.since));
+  const x = v => v / max * (W - labelW - padR);
+  const svg = svgEl('svg', { width: W, height: H, role: 'img', 'aria-label': 'Miles by facility type, before and since 2020' }, box);
+  rows.forEach((r, i) => {
+    const y = i * rowH + (rowH - barH) / 2;
+    svgEl('text', { x: labelW - 8, y: y + barH - 3, 'text-anchor': 'end' }, svg).textContent = r.type;
+    const wb = x(r.before), ws = x(r.since), gap = (wb > 0 && ws > 0) ? 2 : 0;
+    const g = svgEl('g', {}, svg);
+    if (wb > 0) svgEl('rect', { x: labelW, y, width: wb, height: barH, rx: 4, fill: css('--before') }, g);
+    if (ws > 0) svgEl('rect', { x: labelW + wb + gap, y, width: ws, height: barH, rx: 4, fill: css('--since') }, g);
+    svgEl('rect', { x: 0, y: i * rowH, width: W, height: rowH, fill: 'transparent' }, g);
+    svgEl('text', { x: labelW + wb + gap + ws + 6, y: y + barH - 3, class: 'val' }, svg).textContent = fmt(r.before + r.since);
+    bindTip(g, `<b>${r.type}</b><br>Before 2020: ${fmt(r.before)} mi<br>Since 2020: ${fmt(r.since)} mi`);
+  });
+}
+document.getElementById('bytype-table').innerHTML = table(S.by_type, [
+  { label: 'Facility type', key: 'type' },
+  { label: 'Before 2020 (mi)', num: 1, f: r => fmt(r.before) },
+  { label: 'Since 2020 (mi)', num: 1, f: r => fmt(r.since) },
+  { label: 'Total (mi)', num: 1, f: r => fmt(r.before + r.since) }]);
+
+// ---- By year (columns)
+const yearsLeft = 2030 - 2026;
+const recent = S.on_street_by_year.filter(r => r.year === 2024 || r.year === 2025).reduce((a, r) => a + r.mi, 0) / 2;
+document.getElementById('byyear-cap').textContent =
+  `Reaching the ${T}-mile goal by 2030 would take about ${fmt(toGo / yearsLeft, 0)} mi per year from here, vs. about ${fmt(recent, 0)} mi per year in 2024–2025. 2026 is year-to-date.`;
+function drawByYear() {
+  const box = document.getElementById('byyear'); box.innerHTML = '';
+  const rows = S.on_street_by_year, W = box.clientWidth, H = 230, padL = 32, padB = 24, padT = 18;
+  const max = Math.ceil(Math.max(...rows.map(r => r.mi)) / 2) * 2;
+  const y = v => H - padB - v / max * (H - padB - padT);
+  const bw = (W - padL) / rows.length;
+  const svg = svgEl('svg', { width: W, height: H, role: 'img', 'aria-label': 'On-street miles built per year, 2020 to 2026' }, box);
+  for (let t = 0; t <= max; t += max / 4) {
+    svgEl('line', { x1: padL, x2: W, y1: y(t), y2: y(t), stroke: css(t === 0 ? '--axis' : '--grid') }, svg);
+    svgEl('text', { x: padL - 6, y: y(t) + 4, 'text-anchor': 'end' }, svg).textContent = fmt(t, 0);
+  }
+  rows.forEach((r, i) => {
+    const x0 = padL + i * bw, w = Math.min(bw * 0.6, 40), cx = x0 + bw / 2;
+    const g = svgEl('g', {}, svg);
+    const h = H - padB - y(r.mi);
+    if (h > 0) svgEl('path', { d: `M${cx - w / 2},${y(0)} v${-(h - 4)} q0,-4 4,-4 h${w - 8} q4,0 4,4 v${h - 4} z`, fill: css('--since') }, g);
+    svgEl('rect', { x: x0, y: padT, width: bw, height: H - padB - padT, fill: 'transparent' }, g);
+    svgEl('text', { x: cx, y: H - 6, 'text-anchor': 'middle' }, svg).textContent = r.year;
+    if (r.year === 2022) svgEl('text', { x: cx, y: y(r.mi) - 6, 'text-anchor': 'middle', class: 'val' }, svg).textContent = fmt(r.mi);
+    bindTip(g, `<b>${r.year}${r.year === 2026 ? ' (year to date)' : ''}</b><br>${fmt(r.mi)} on-street mi built`);
+  });
+}
+document.getElementById('byyear-table').innerHTML = table(S.on_street_by_year, [
+  { label: 'Year', key: 'year' }, { label: 'On-street miles built', num: 1, f: r => fmt(r.mi) }]);
+
+// ---- Projects table
+const onHin = PROJECTS.filter(p => p.hin_mi >= 0.25);
+document.getElementById('proj-cap').textContent =
+  `${onHin.length} unbuilt projects have at least a quarter mile on the High Injury Network. Top 15 shown, ranked by HIN miles.`;
+const projCols = [
+  { label: 'Project', f: r => `${r.proj_name}<br><span style="color:var(--muted)">${r.xst_from} to ${r.xst_to}</span>` },
+  { label: 'Neighborhoods', cls: 'hide-sm', f: r => r.neighborhoods },
+  { label: 'Miles', num: 1, f: r => fmt(r.mi, 2) },
+  { label: 'On HIN (mi)', num: 1, f: r => fmt(r.hin_mi, 2) }];
+document.getElementById('proj-table').innerHTML = table(onHin.slice(0, 15), projCols);
+document.getElementById('proj-all').innerHTML = table(PROJECTS, projCols);
+
+// ---- Notes
+const d = S.data_dates.layers;
+document.getElementById('notes').innerHTML = [
+  `Lengths are centerline miles: a street with bike lanes on both sides counts once.`,
+  `"Before 2020" includes ${fmt(S.before_2020_missing_year_mi)} mi with no build year in the City data, almost all riverfront and park trails (e.g. Three Rivers Heritage Trail) that predate the plan.`,
+  `Progress is measured against the plan's ${T} miles of new on-street facilities, the figure BikePGH uses. Shared use paths and trails are excluded from progress and reported separately (${S.target_trail_mi}-mile trail goal).`,
+  `"Still proposed" is the proposed on-street lines in DOMI's Bicycle Facilities map. ${S.tbd_corridor_n} "Future Bike Corridor (Route TBD)" lines (${fmt(S.tbd_corridor_mi)} mi) mark a corridor of need rather than a chosen street, so they are shown separately and not counted. Proposed on-street plus built-since-2020 miles (${fmt(S.on_street_proposed_mi + built)}) exceed the ${T}-mile goal, partly because some proposed lines upgrade existing facilities.`,
+  `Of the ${S.plan_projects.n} projects on the 2020 plan project list (${fmt(S.plan_projects.mi)} mi), ${S.plan_projects.by_status['Built since 2020'].count} look built since 2020 and ${S.plan_projects.by_status['Not built yet'].count} look unbuilt, based on overlap with existing facilities. About half of the miles built since 2020 (${fmt(S.since_2020_on_plan_list_mi)} mi) are on that list.`,
+  `"On the HIN" means within ${S.buffer_ft} ft of a High Injury Network street, so short crossings can add a little length.`,
+  `Data: City of Pittsburgh DOMI, Pittsburgh Bicycle Facilities (existing edited ${d.bike_existing.data_last_edit}, proposed ${d.bike_proposed.data_last_edit}, project list ${d.bike_project_list.data_last_edit}) and High Injury Network (${d.high_injury_network.data_last_edit}). Pulled ${S.data_dates.fetched_at.slice(0, 10)}.`,
+].map(t => `<li>${t}</li>`).join('');
+
+// ---- Map
+const dark = matchMedia('(prefers-color-scheme: dark)').matches && document.documentElement.dataset.theme !== 'light'
+  || document.documentElement.dataset.theme === 'dark';
+const map = L.map('map', { scrollWheelZoom: false }).setView([40.44, -79.98], 12);
+L.tileLayer(`https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_${dark ? 'Dark' : 'Light'}_Gray_Base/MapServer/tile/{z}/{y}/{x}`, {
+  attribution: 'Basemap &copy; Esri, HERE, Garmin, &copy; OpenStreetMap contributors', maxZoom: 16 }).addTo(map);
+const layers = {
+  hin: L.geoJSON(GEO.hin, { style: { color: css('--hin'), weight: 12, lineCap: 'round' },
+    onEachFeature: (f, l) => l.bindPopup(`<b>High Injury Network</b><br>${f.properties.streetname || ''}<br>Crashes: ${f.properties.Count_AllCrash ?? '–'} (bike ${f.properties.Count_BicycleCrash ?? '–'}, ped ${f.properties.Count_PedestrianCrash ?? '–'})`) }),
+  before: L.geoJSON(GEO.existing, { filter: f => f.properties.period === 'Before 2020',
+    style: { color: css('--before'), weight: 2.5 },
+    onEachFeature: (f, l) => l.bindPopup(`<b>${f.properties.street || ''}</b><br>${f.properties.fac_type}<br>Built: ${f.properties.yearbuilt > 0 ? f.properties.yearbuilt : 'year not recorded'}<br>${fmt(f.properties.mi, 2)} mi`) }),
+  since: L.geoJSON(GEO.existing, { filter: f => f.properties.period === 'Since 2020',
+    style: { color: css('--since'), weight: 3.5 },
+    onEachFeature: (f, l) => l.bindPopup(`<b>${f.properties.street || ''}</b><br>${f.properties.fac_type}<br>Built: ${f.properties.yearbuilt}<br>${fmt(f.properties.mi, 2)} mi`) }),
+  proposed: L.geoJSON(GEO.proposed, { filter: f => f.properties.kind !== 'Corridor, route TBD',
+    style: f => ({ color: css('--remaining'), weight: f.properties.kind === 'On-street' ? 3 : 2, dashArray: '6 5' }),
+    onEachFeature: (f, l) => l.bindPopup(`<b>Still proposed</b><br>${f.properties.type}<br>${fmt(f.properties.mi, 2)} mi (${fmt(f.properties.hin_mi, 2)} mi on HIN)`) }),
+  tbd: L.geoJSON(GEO.proposed, { filter: f => f.properties.kind === 'Corridor, route TBD',
+    style: { color: css('--remaining'), weight: 2, opacity: 0.6, dashArray: '1 6', lineCap: 'round' },
+    onEachFeature: (f, l) => l.bindPopup(`<b>Future bike corridor</b><br>Route not yet chosen; line shows the corridor of need, not a street.`) }),
+};
+Object.values(layers).forEach(l => l.addTo(map));
+document.querySelectorAll('.mapctl input').forEach(cb => cb.addEventListener('change', () => {
+  const l = layers[cb.dataset.layer]; cb.checked ? l.addTo(map) : map.removeLayer(l);
+  layers.since.bringToFront(); layers.proposed.bringToFront();
+}));
+
+function drawAll() { drawProgress(); drawByType(); drawByYear(); }
+drawAll();
+let rt; addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(drawAll, 120); });
+</script>
+</body>
+</html>
