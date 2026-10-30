@@ -272,6 +272,7 @@ document.getElementById('proj-all').innerHTML = table(PROJECTS, projCols);
 // ---- Notes
 const d = S.data_dates.layers;
 document.getElementById('notes').innerHTML = [
+  `This is a draft volunteer analysis prepared for BikePGH from public City of Pittsburgh data. It is not an official City or BikePGH publication.`,
   `Lengths are centerline miles: a street with bike lanes on both sides counts once.`,
   `"Before 2020" includes ${fmt(S.before_2020_missing_year_mi)} mi with no build year in the City data, almost all riverfront and park trails (e.g. Three Rivers Heritage Trail) that predate the plan.`,
   `Progress is measured against the plan's ${T} miles of new on-street facilities, the figure BikePGH uses. Shared use paths and trails are excluded from progress and reported separately (${S.target_trail_mi}-mile trail goal).`,
