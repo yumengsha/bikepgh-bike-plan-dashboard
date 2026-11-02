@@ -7,6 +7,8 @@ Definitions (confirmed with Eric, BikePGH, 2026-10-30 where noted):
 - "Future Bike Corridor (Route TBD)" lines in the proposed layer mark a corridor of need,
   not a chosen street, so they are reported separately and not counted as street miles.
   [per Eric]
+- Everything is clipped to the City limits, so facilities and proposals in other
+  municipalities do not count toward the City's progress. [per Eric]
 - Lengths are centerline miles (a two-sided lane on one street counts once), measured in
   EPSG:2272 (PA South, US feet).
 - "Before 2020": existing facilities with yearbuilt < 2020, plus facilities with a missing
@@ -20,6 +22,7 @@ Definitions (confirmed with Eric, BikePGH, 2026-10-30 where noted):
   within BUFFER_FT of existing facilities.
 """
 import json
+import re
 from pathlib import Path
 
 import geopandas as gpd
@@ -44,8 +47,12 @@ TYPE_ORDER = [
 ]
 
 
-def load(name):
+def load(name, city=None):
     g = gpd.read_file(RAW / f"{name}.geojson").to_crs(CRS_FT)
+    g["mi_full"] = g.length / FT_PER_MI
+    if city is not None:
+        g = gpd.clip(g, city, keep_geom_type=True)
+        g = g[~g.geometry.is_empty].copy()
     g["mi"] = g.length / FT_PER_MI
     return g
 
@@ -56,9 +63,40 @@ def miles_within(lines, other):
     return lines.geometry.intersection(zone).length / FT_PER_MI
 
 
+def names_near(g, other, col, buf, min_mi, top):
+    """For each line in g, the values of other[col] with the most length near that line."""
+    idx, out = other.sindex, []
+    for geom in g.geometry:
+        zone = geom.buffer(buf)
+        near = other.iloc[idx.query(zone, predicate="intersects")]
+        miles = (near.intersection(zone).length / FT_PER_MI).groupby(near[col]).sum()
+        miles = miles[miles >= min_mi].sort_values(ascending=False)
+        out.append(list(miles.index[:top]))
+    return out
+
+
+def tidy_street(name):
+    """'40TH ST BRG' -> '40th St Brg'."""
+    return re.sub(r"(\d)(St|Nd|Rd|Th)\b", lambda m: m.group(1) + m.group(2).lower(), name.title())
+
+
+def is_local_street(name):
+    return not re.search(r"\bI-\d|RAMP|\bHOV\b|\bPA RT\b|\bUS RT\b", name)
+
+
 def main():
-    ex, pr, pl, hin = (load(n) for n in
+    districts = gpd.read_file(RAW / "city_districts.geojson").to_crs(CRS_FT)
+    city = gpd.GeoDataFrame(geometry=[districts.union_all().buffer(0)], crs=CRS_FT)
+    ex, pr, pl, hin = (load(n, city) for n in
                        ["bike_existing", "bike_proposed", "bike_project_list", "high_injury_network"])
+    outside = {
+        "existing": float(gpd.read_file(RAW / "bike_existing.geojson").to_crs(CRS_FT).length.sum() / FT_PER_MI - ex.mi.sum()),
+        "proposed": float(gpd.read_file(RAW / "bike_proposed.geojson").to_crs(CRS_FT).length.sum() / FT_PER_MI - pr.mi.sum()),
+    }
+
+    ex, pr = ex.reset_index(drop=True), pr.reset_index(drop=True)
+    ex["rid"] = "E" + ex.index.astype(str)
+    pr["rid"] = "P" + pr.index.astype(str)
 
     yb = ex["yearbuilt"].fillna(0).astype(int)
     ex["year_missing"] = yb <= 0
@@ -89,6 +127,7 @@ def main():
     pl.loc[(share_since > 0.1) & (share_since < 0.5), "status"] = "Partly built"
 
     summary = {
+        "outside_city_removed_mi": outside,
         "target_on_street_mi": TARGET_ON_STREET_MI,
         "target_trail_mi": TARGET_TRAIL_MI,
         "on_street_existing_mi": ex[ex.on_street].mi.sum(),
@@ -142,6 +181,64 @@ def main():
     todo.round({"mi": 2, "hin_mi": 2}).to_csv(OUT / "unbuilt_plan_projects_by_hin.csv", index=False)
     pl.drop(columns="geometry").round(3).to_csv(OUT / "plan_projects_status.csv", index=False)
 
+    # Record-level comparison tables
+    hoods = load("neighborhoods", city)[["hood", "geometry"]].dissolve("hood").reset_index()
+    blocks = gpd.read_file(RAW / "street_blocks.geojson").to_crs(CRS_FT)
+    blocks = blocks[blocks.geometry.notna() & blocks.Streetname.notna()]
+    ex_os = ex[ex.on_street]
+
+    ex["hin_mi"] = miles_within(ex, hin)
+    pr["along_existing_mi"] = miles_within(pr, ex_os)
+    summary["on_street_proposed_along_existing_mi"] = float(pr.loc[pr.kind == "On-street", "along_existing_mi"].sum())
+    (OUT / "summary.json").write_text(json.dumps(summary, indent=2, default=float))
+
+    def hood_names(g):
+        return [", ".join(n) for n in names_near(g, hoods, "hood", 1, 0.01, 4)]
+
+    ex["hoods"] = hood_names(ex)
+    pr["hoods"] = hood_names(pr)
+    named = pr.kind != "Corridor, route TBD"
+    projects = [(n[0] if n else "") for n in names_near(pr, pl, "proj_name", BUFFER_FT, 0.05, 1)]
+    streets = names_near(pr, blocks, "Streetname", 25, 0.03, 5)
+    local = [[tidy_street(s) for s in n if is_local_street(s)][:3] or [tidy_street(s) for s in n][:3] for n in streets]
+    pr["project"] = [p if keep else "" for p, keep in zip(projects, named)]
+    pr["streets"] = [", ".join(n) if keep else "" for n, keep in zip(local, named)]
+
+    side = ex["road_side"].fillna("").str.strip().str.lower()
+    hin_zone = hin.buffer(BUFFER_FT).unary_union
+    pr_on = pr[pr.kind == "On-street"]
+    hood_rows = []
+    for _, h in hoods.iterrows():
+        row = {
+            "hood": h.hood,
+            "existing": ex_os.intersection(h.geometry).length.sum() / FT_PER_MI,
+            "since": since_os.intersection(h.geometry).length.sum() / FT_PER_MI,
+            "proposed": pr_on.intersection(h.geometry).length.sum() / FT_PER_MI,
+            "proposed_hin": pr_on.intersection(h.geometry.intersection(hin_zone)).length.sum() / FT_PER_MI,
+            "bounds": list(gpd.GeoSeries([h.geometry], crs=CRS_FT).to_crs(4326).total_bounds),
+        }
+        hood_rows.append(row)
+    in_hoods = {k: sum(r[k] for r in hood_rows) for k in ["existing", "since", "proposed", "proposed_hin"]}
+    totals = {"existing": ex_os.mi.sum(), "since": since_os.mi.sum(), "proposed": pr_on.mi.sum(),
+              "proposed_hin": float(pr_on.hin_mi.sum())}
+    hood_rows.append({"hood": "On bridges and rivers (no neighborhood)", "bounds": None,
+                      **{k: max(totals[k] - in_hoods[k], 0) for k in totals}})
+
+    records = {
+        "existing": pd.DataFrame({
+            "rid": ex.rid, "street": ex.street.fillna(""), "type": ex.fac_type,
+            "year": yb.where(yb > 0, 0), "side": side, "hoods": ex.hoods,
+            "mi": ex.mi.round(3), "hin_mi": ex.hin_mi.round(3), "on_street": ex.on_street,
+        }).to_dict("records"),
+        "proposed": pd.DataFrame({
+            "rid": pr.rid, "project": pr["project"], "streets": pr.streets, "type": pr["type"], "kind": pr.kind,
+            "hoods": pr.hoods, "mi": pr.mi.round(3), "hin_mi": pr.hin_mi.round(3),
+            "along_existing_mi": pr.along_existing_mi.round(3),
+        }).to_dict("records"),
+        "neighborhoods": hood_rows,
+    }
+    (OUT / "records.json").write_text(json.dumps(records, default=float))
+
     # Map layers (WGS84, lightly simplified)
     def export(g, name, keep):
         g = g[keep + ["geometry"]].copy()
@@ -149,10 +246,11 @@ def main():
         g.to_crs(4326).to_file(OUT / f"{name}.geojson", driver="GeoJSON")
 
     ex["mi"] = ex.mi.round(3)
-    export(ex, "map_existing", ["street", "fac_type", "yearbuilt", "period", "mi"])
+    export(ex, "map_existing", ["rid", "street", "fac_type", "yearbuilt", "period", "mi"])
     pr["mi"], pr["hin_mi"] = pr.mi.round(3), pr.hin_mi.round(3)
-    export(pr, "map_proposed", ["type", "kind", "mi", "hin_mi"])
+    export(pr, "map_proposed", ["rid", "type", "kind", "mi", "hin_mi"])
     export(hin, "map_hin", ["streetname", "Count_AllCrash", "Count_BicycleCrash", "Count_PedestrianCrash"])
+    city.to_crs(4326)[["geometry"]].to_file(OUT / "map_city.geojson", driver="GeoJSON")
 
     print(json.dumps({k: (round(v, 1) if isinstance(v, float) else v)
                       for k, v in summary.items() if k not in ("data_dates",)}, indent=1, default=float))

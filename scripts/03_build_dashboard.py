@@ -17,6 +17,8 @@ def main():
         "__EXISTING__": (PROC / "map_existing.geojson").read_text(),
         "__PROPOSED__": (PROC / "map_proposed.geojson").read_text(),
         "__HIN__": (PROC / "map_hin.geojson").read_text(),
+        "__CITY__": (PROC / "map_city.geojson").read_text(),
+        "__RECORDS__": (PROC / "records.json").read_text(),
     }.items():
         html = html.replace(key, value)
     out = ROOT / "outputs" / "bike_plan_dashboard.html"

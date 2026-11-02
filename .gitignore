@@ -15,3 +15,6 @@ data/raw/fetch_log.json
 data/processed/
 outputs/
 site/
+
+# local preview config
+.claude/

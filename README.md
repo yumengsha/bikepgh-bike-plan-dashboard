@@ -32,6 +32,8 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 - City of Pittsburgh, *Bike(+) Plan* (June 2020), for the 123-mile on-street goal (p. 5)
 
 ## Definitions
+- Only segments inside the City limits count, so the City isn't held accountable for other
+  municipalities. Boundary = union of the City's 2022 council districts.
 - Centerline miles: a street with bike lanes on both sides counts once.
 - Progress counts on-street facilities only; trails and shared use paths are reported
   separately (27-mile trail goal).
