@@ -42,6 +42,12 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 - Facilities with no build year (mostly older riverfront and park trails) are counted as
   built before 2020.
 - "On the HIN" = within 60 ft of a High Injury Network street.
+- Proposed on-street lines that run at least 0.1 mi along a facility built since 2020 are
+  flagged (dark outline on the map). They may be planned upgrades (e.g. sharrow to bike lane)
+  or projects DOMI hasn't removed from its proposed map yet; they stay counted as proposed.
+- Years roll over automatically: the per-year chart and required pace use the current year.
+- The weekly workflow pushes an empty commit if the repo has had no commits for 45 days, because
+  GitHub pauses scheduled workflows in public repos after 60 days of inactivity.
 
 ## Open questions
 - Proposed on-street (~106 mi) + built since 2020 (~32 mi) = ~138 mi, more than the 123-mile

@@ -8,7 +8,7 @@ on:
     branches: [main]
 
 permissions:
-  contents: read
+  contents: write   # only used by the keep-alive step below
   pages: write
   id-token: write
 
@@ -21,6 +21,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      # GitHub pauses scheduled workflows in public repos after 60 days without a commit.
+      # If the last commit is 45+ days old, push an empty commit so the weekly refresh keeps running.
+      - name: Keep weekly refresh active
+        if: github.event_name == 'schedule'
+        run: |
+          age_days=$(( ( $(date +%s) - $(git log -1 --format=%ct) ) / 86400 ))
+          echo "Last commit was $age_days days ago"
+          if [ "$age_days" -ge 45 ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit --allow-empty -m "Keep weekly refresh active"
+            git push
+          fi
 
       - uses: actions/setup-python@v5
         with:

@@ -23,6 +23,7 @@ Definitions (confirmed with Eric, BikePGH, 2026-10-30 where noted):
 """
 import json
 import re
+from datetime import date
 from pathlib import Path
 
 import geopandas as gpd
@@ -35,7 +36,9 @@ OUT.mkdir(parents=True, exist_ok=True)
 CRS_FT = 2272
 FT_PER_MI = 5280
 BUFFER_FT = 60
+OVERLAP_MIN_MI = 0.1  # ignore crossings: only flag proposed lines running along a built street
 PLAN_YEAR = 2020
+CURRENT_YEAR = date.today().year  # charts and pace roll over automatically each year
 TARGET_ON_STREET_MI = 123  # Bike(+) Plan p. 5: new on-street facilities
 TARGET_TRAIL_MI = 27       # Bike(+) Plan p. 5: new trails (context only)
 OFF_STREET_EXISTING = {"Shared Use Path"}
@@ -128,6 +131,7 @@ def main():
 
     summary = {
         "outside_city_removed_mi": outside,
+        "current_year": CURRENT_YEAR,
         "target_on_street_mi": TARGET_ON_STREET_MI,
         "target_trail_mi": TARGET_TRAIL_MI,
         "on_street_existing_mi": ex[ex.on_street].mi.sum(),
@@ -140,7 +144,7 @@ def main():
         "trail_proposed_mi": pr[pr.kind == "Trail / path"].mi.sum(),
         "on_street_by_year": [
             {"year": int(y), "mi": float(since_os.loc[since_os.yearbuilt.astype(int) == y, "mi"].sum())}
-            for y in range(PLAN_YEAR, 2027)
+            for y in range(PLAN_YEAR, CURRENT_YEAR + 1)
         ],
         "existing_total_mi": ex.mi.sum(),
         "before_2020_mi": before.mi.sum(),
@@ -159,7 +163,7 @@ def main():
         ],
         "by_year": [
             {"year": int(y), "mi": float(since.loc[since.yearbuilt.astype(int) == y, "mi"].sum())}
-            for y in range(PLAN_YEAR, 2027)
+            for y in range(PLAN_YEAR, CURRENT_YEAR + 1)
         ],
         "proposed_by_type": pr.groupby("type").mi.sum().round(2).to_dict(),
         "plan_projects": {
@@ -190,6 +194,16 @@ def main():
     ex["hin_mi"] = miles_within(ex, hin)
     pr["along_existing_mi"] = miles_within(pr, ex_os)
     summary["on_street_proposed_along_existing_mi"] = float(pr.loc[pr.kind == "On-street", "along_existing_mi"].sum())
+    # Proposed lines that sit on a facility built since 2020: either planned upgrades (e.g. an
+    # interim sharrow) or projects already built that DOMI hasn't removed from the proposed layer.
+    since_zone = since_os.buffer(BUFFER_FT).unary_union
+    pr["along_since_mi"] = pr.geometry.intersection(since_zone).length / FT_PER_MI
+    pr.loc[pr.along_since_mi < OVERLAP_MIN_MI, "along_since_mi"] = 0.0
+    flagged = (pr.kind == "On-street") & (pr.along_since_mi > 0)
+    summary["on_street_proposed_along_since_mi"] = float(pr.loc[flagged, "along_since_mi"].sum())
+    summary["on_street_proposed_along_since_n"] = int(flagged.sum())
+    overlap = pr[flagged].copy()
+    overlap["geometry"] = overlap.geometry.intersection(since_zone)
     (OUT / "summary.json").write_text(json.dumps(summary, indent=2, default=float))
 
     def hood_names(g):
@@ -234,6 +248,7 @@ def main():
             "rid": pr.rid, "project": pr["project"], "streets": pr.streets, "type": pr["type"], "kind": pr.kind,
             "hoods": pr.hoods, "mi": pr.mi.round(3), "hin_mi": pr.hin_mi.round(3),
             "along_existing_mi": pr.along_existing_mi.round(3),
+            "along_since_mi": pr.along_since_mi.round(3),
         }).to_dict("records"),
         "neighborhoods": hood_rows,
     }
@@ -249,6 +264,8 @@ def main():
     export(ex, "map_existing", ["rid", "street", "fac_type", "yearbuilt", "period", "mi"])
     pr["mi"], pr["hin_mi"] = pr.mi.round(3), pr.hin_mi.round(3)
     export(pr, "map_proposed", ["rid", "type", "kind", "mi", "hin_mi"])
+    overlap["mi"] = (overlap.length / FT_PER_MI).round(3)
+    export(overlap, "map_overlap", ["rid", "mi"])
     export(hin, "map_hin", ["streetname", "Count_AllCrash", "Count_BicycleCrash", "Count_PedestrianCrash"])
     city.to_crs(4326)[["geometry"]].to_file(OUT / "map_city.geojson", driver="GeoJSON")
 

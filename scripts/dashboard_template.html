@@ -93,7 +93,7 @@ details summary { cursor: pointer; color: var(--text-secondary); font-size: 13px
 </head>
 <body>
 <main>
-  <h1>Bike(+) Plan at the midpoint <span class="draft">Draft v2 · Nov 4, 2026</span></h1>
+  <h1>Bike(+) Plan at the midpoint <span class="draft">Draft v3 · Nov 11, 2026</span></h1>
   <p class="updated" id="updated"></p>
   <p class="sub">Progress on the 2020 Bike(+) Plan's goal of 123 new miles of on-street bike facilities: what was built before and since 2020, what is still proposed, and where the remaining projects meet the High Injury Network. All figures are centerline miles.</p>
 
@@ -134,6 +134,7 @@ details summary { cursor: pointer; color: var(--text-secondary); font-size: 13px
       <label><input type="checkbox" data-layer="since" checked> <span class="swatch" style="background:var(--since)"></span>Built since 2020</label>
       <label><input type="checkbox" data-layer="proposed" checked> <span class="swatch" style="background:var(--remaining)"></span>Proposed on-street (dashed)</label>
       <label><input type="checkbox" data-layer="trail" checked> <span class="swatch" style="background:var(--trail)"></span>Proposed trail / shared-use path (dashed)</label>
+      <label><input type="checkbox" data-layer="overlap" checked> <span class="swatch" style="background:var(--text-primary);opacity:.6"></span>Built since 2020 and still proposed (dark outline)</label>
       <label><input type="checkbox" data-layer="tbd" checked> <span class="swatch" style="background:var(--remaining);opacity:.45"></span>Future corridor, route TBD (dotted)</label>
     </div>
     <div id="map"></div>
@@ -168,6 +169,7 @@ details summary { cursor: pointer; color: var(--text-secondary); font-size: 13px
     <ul class="notes" id="notes"></ul>
     <h3 class="notes-h">Version history</h3>
     <ul class="ver">
+      <li><b>v3, Nov 11, 2026:</b> Marked proposed lines that sit on facilities built since 2020. Charts and pace now roll over to each new year automatically.</li>
       <li><b>v2, Nov 4, 2026:</b> Removed everything outside the City limits. Split proposed on-street and proposed trails on the map. Added the existing vs. proposed comparison and record-level tables.</li>
       <li><b>v1, Oct 30, 2026:</b> First draft.</li>
     </ul>
@@ -180,7 +182,7 @@ details summary { cursor: pointer; color: var(--text-secondary); font-size: 13px
 const S = __SUMMARY__;
 const PROJECTS = __PROJECTS__;
 const R = __RECORDS__;
-const GEO = { existing: __EXISTING__, proposed: __PROPOSED__, hin: __HIN__, city: __CITY__ };
+const GEO = { overlap: __OVERLAP__, existing: __EXISTING__, proposed: __PROPOSED__, hin: __HIN__, city: __CITY__ };
 
 const fmt = (v, d = 1) => Number(v).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
 const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
@@ -223,7 +225,7 @@ const pct = built / T * 100;
 document.getElementById('tiles').innerHTML = [
   ['On-street network today', S.on_street_existing_mi, `Plus ${fmt(S.existing_total_mi - S.on_street_existing_mi)} mi of trails and paths`],
   ['Built since 2020 (on-street)', built, `${fmt(pct, 0)}% of the ${T}-mile goal`],
-  ['Still proposed (on-street)', S.on_street_proposed_mi, `Plus ${fmt(S.tbd_corridor_mi)} mi of corridors with route TBD`],
+  ['Still proposed (on-street)', S.on_street_proposed_mi, `Includes ${fmt(S.on_street_proposed_along_since_mi)} mi along facilities built since 2020. Plus ${fmt(S.tbd_corridor_mi)} mi of corridors with route TBD`],
   ['Proposed on-street on HIN', S.on_street_proposed_on_hin_mi, `${fmt(S.on_street_proposed_on_hin_mi / S.on_street_proposed_mi * 100, 0)}% of proposed on-street miles`],
 ].map(([k, v, n]) => `<div class="tile"><div class="k">${k}</div><div class="v">${fmt(v)} <small>mi</small></div><div class="n">${n}</div></div>`).join('');
 
@@ -287,10 +289,12 @@ document.getElementById('bytype-table').innerHTML = table(S.by_type, [
   { label: 'Total (mi)', num: 1, f: r => fmt(r.before + r.since) }]);
 
 // ---- By year (columns)
-const yearsLeft = 2030 - 2026;
-const recent = S.on_street_by_year.filter(r => r.year === 2024 || r.year === 2025).reduce((a, r) => a + r.mi, 0) / 2;
-document.getElementById('byyear-cap').textContent =
-  `Reaching the ${T}-mile goal by 2030 would take about ${fmt(toGo / yearsLeft, 0)} mi per year from here, vs. about ${fmt(recent, 0)} mi per year in 2024–2025. 2026 is year-to-date.`;
+const CY = S.current_year, yearsLeft = Math.max(2030 - CY, 1);
+const recent = S.on_street_by_year.filter(r => r.year === CY - 2 || r.year === CY - 1).reduce((a, r) => a + r.mi, 0) / 2;
+document.getElementById('byyear-cap').textContent = (CY <= 2030
+  ? `Reaching the ${T}-mile goal by 2030 would take about ${fmt(toGo / yearsLeft, 0)} mi per year from here. `
+  : `The plan's 2030 target year has passed; ${fmt(toGo)} mi of the ${T}-mile goal remain. `) +
+  `Recent pace: about ${fmt(recent, 0)} mi per year in ${CY - 2}–${CY - 1}. ${CY} is year-to-date.`;
 function drawByYear() {
   const box = document.getElementById('byyear'); box.innerHTML = '';
   const rows = S.on_street_by_year, W = box.clientWidth, H = 230, padL = 32, padB = 24, padT = 18;
@@ -310,7 +314,7 @@ function drawByYear() {
     svgEl('rect', { x: x0, y: padT, width: bw, height: H - padB - padT, fill: 'transparent' }, g);
     svgEl('text', { x: cx, y: H - 6, 'text-anchor': 'middle' }, svg).textContent = r.year;
     if (r.year === 2022) svgEl('text', { x: cx, y: y(r.mi) - 6, 'text-anchor': 'middle', class: 'val' }, svg).textContent = fmt(r.mi);
-    bindTip(g, `<b>${r.year}${r.year === 2026 ? ' (year to date)' : ''}</b><br>${fmt(r.mi)} on-street mi built`);
+    bindTip(g, `<b>${r.year}${r.year === CY ? ' (year to date)' : ''}</b><br>${fmt(r.mi)} on-street mi built`);
   });
 }
 document.getElementById('byyear-table').innerHTML = table(S.on_street_by_year, [
@@ -325,8 +329,8 @@ const VIEWS = {
     cols: [['hood', 'Neighborhood'], ['existing', 'Existing on-street (mi)', 1], ['since', 'Built since 2020 (mi)', 1], ['proposed', 'Proposed on-street (mi)', 1], ['proposed_hin', 'Proposed on HIN (mi)', 1]],
     total: rs => `${rs.length} rows · Existing on-street ${fmt(rs.reduce((a, r) => a + r.existing, 0))} mi · Proposed on-street ${fmt(rs.reduce((a, r) => a + r.proposed, 0))} mi` },
   proposed: { rows: R.proposed, search: r => [r.project, r.streets, r.hoods, r.type].join(' '), sort: ['mi', -1],
-    filters: [['On-street', 'Proposed on-street', r => r.kind === 'On-street'], ['Trail / path', 'Proposed trails and paths', r => r.kind === 'Trail / path'], ['Corridor, route TBD', 'Corridors, route TBD', r => r.kind === 'Corridor, route TBD']],
-    cols: [['project', 'Plan project'], ['streets', 'Streets (matched by location)'], ['hoods', 'Neighborhoods'], ['type', 'Type'], ['mi', 'Miles', 1], ['hin_mi', 'On HIN (mi)', 1], ['along_existing_mi', 'Along existing facility (mi)', 1]],
+    filters: [['On-street', 'Proposed on-street', r => r.kind === 'On-street'], ['since', 'On-street, along facilities built since 2020', r => r.kind === 'On-street' && r.along_since_mi > 0], ['Trail / path', 'Proposed trails and paths', r => r.kind === 'Trail / path'], ['Corridor, route TBD', 'Corridors, route TBD', r => r.kind === 'Corridor, route TBD']],
+    cols: [['project', 'Plan project'], ['streets', 'Streets (matched by location)'], ['hoods', 'Neighborhoods'], ['type', 'Type'], ['mi', 'Miles', 1], ['hin_mi', 'On HIN (mi)', 1], ['along_existing_mi', 'Along existing facility (mi)', 1], ['along_since_mi', 'Along facility built since 2020 (mi)', 1]],
     total: rs => `${rs.length} record${rs.length === 1 ? '' : 's'} · ${fmt(rs.reduce((a, r) => a + r.mi, 0))} mi · ${fmt(rs.reduce((a, r) => a + r.hin_mi, 0))} mi on HIN` },
   existing: { rows: R.existing, search: r => [r.street, r.hoods, r.type].join(' '), sort: ['mi', -1],
     filters: [['os', 'All on-street', r => r.on_street], ...[...new Set(R.existing.map(r => r.type))].sort().map(t => [t, t, r => r.type === t])],
@@ -409,6 +413,7 @@ document.getElementById('notes').innerHTML = [
   `"Before 2020" includes ${fmt(S.before_2020_missing_year_mi)} mi with no build year in the City data, almost all riverfront and park trails (e.g. Three Rivers Heritage Trail) that predate the plan.`,
   `Progress is measured against the plan's ${T} miles of new on-street facilities, the figure BikePGH uses. Shared use paths and trails are excluded from progress and reported separately (${S.target_trail_mi}-mile trail goal).`,
   `"Still proposed" is the proposed on-street lines in DOMI's Bicycle Facilities map. ${S.tbd_corridor_n} "Future Bike Corridor (Route TBD)" lines (${fmt(S.tbd_corridor_mi)} mi) mark a corridor of need rather than a chosen street, so they are shown separately and not counted. Proposed on-street plus built-since-2020 miles (${fmt(S.on_street_proposed_mi + built)}) exceed the ${T}-mile goal. About ${fmt(S.on_street_proposed_along_existing_mi)} proposed on-street miles run along an existing on-street facility, which may be upgrades or nearby parallel lines.`,
+  `${fmt(S.on_street_proposed_along_since_mi)} mi of proposed on-street lines (${S.on_street_proposed_along_since_n} records) sit on facilities built since 2020 (dark outline on the map). Most are sharrows, which the plan may still upgrade; others look already built but not yet removed from DOMI's proposed map, which was last edited ${d.bike_proposed.data_last_edit}. They are still counted as proposed until confirmed.`,
   `DOMI's proposed layer has no names, so plan projects, streets, and neighborhoods in the tables are matched by location and may need checking.`,
   `Of the ${S.plan_projects.n} projects on the 2020 plan project list (${fmt(S.plan_projects.mi)} mi), ${S.plan_projects.by_status['Built since 2020'].count} look built since 2020 and ${S.plan_projects.by_status['Not built yet'].count} look unbuilt, based on overlap with existing facilities. About half of the miles built since 2020 (${fmt(S.since_2020_on_plan_list_mi)} mi) are on that list.`,
   `"On the HIN" means within ${S.buffer_ft} ft of a High Injury Network street, so short crossings can add a little length.`,
@@ -437,6 +442,9 @@ const layers = {
   trail: L.geoJSON(GEO.proposed, { filter: f => f.properties.kind === 'Trail / path',
     style: { color: css('--trail'), weight: 3, dashArray: '6 5' },
     onEachFeature: (f, l) => l.bindPopup(`<b>Proposed trail / shared-use path</b><br>${f.properties.type}<br>${fmt(f.properties.mi, 2)} mi. Not counted toward the on-street goal.`) }),
+  overlap: L.geoJSON(GEO.overlap, { style: { color: css('--text-primary'), weight: 9, opacity: 0.35, lineCap: 'round' },
+    onEachFeature: (f, l) => { const r = R.proposed.find(x => x.rid === f.properties.rid) || {};
+      l.bindPopup(`<b>Built since 2020 and still proposed</b><br>${esc(r.project || 'Not matched to a plan project')}${r.streets ? `<br>${esc(r.streets)}` : ''}<br>${fmt(f.properties.mi, 2)} mi. May be a planned upgrade (e.g. sharrow to bike lane) or a project DOMI hasn't removed from its proposed map yet.`); } }),
   tbd: L.geoJSON(GEO.proposed, { filter: f => f.properties.kind === 'Corridor, route TBD',
     style: { color: css('--remaining'), weight: 2, opacity: 0.6, dashArray: '1 6', lineCap: 'round' },
     onEachFeature: (f, l) => l.bindPopup(`<b>Future bike corridor</b><br>Route not yet chosen; line shows the corridor of need, not a street.`) }),
@@ -450,7 +458,7 @@ document.querySelectorAll('.mapctl input').forEach(cb => cb.addEventListener('ch
 
 // ---- Click a record row to find it on the map
 const byRid = {};
-Object.values(layers).forEach(g => g.eachLayer(l => { const rid = l.feature.properties.rid; if (rid) byRid[rid] = l; }));
+Object.entries(layers).forEach(([k, g]) => k !== 'overlap' && g.eachLayer(l => { const rid = l.feature.properties.rid; if (rid) byRid[rid] = l; }));
 let highlight = null;
 tbody.addEventListener('click', e => {
   const tr = e.target.closest('tr'); if (!tr) return;
